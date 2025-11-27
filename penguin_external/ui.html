@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>penguin external</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;height:100vh;display:flex;align-items:center;justify-content:center;}
+  .box{background:#161b22;border:1px solid #30363d;padding:24px 32px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+  h1{font-size:15px;font-weight:600;letter-spacing:1px;text-align:center;margin:0 0 24px;color:#f0f6fc;text-transform:uppercase;}
+  label{display:block;margin:16px 0 8px;font-size:13px;color:#8b949e;}
+  input[type=range]{width:100%;height:4px;background:#30363d;border-radius:2px;}
+  input[type=range]::-webkit-slider-thumb{background:#58a6ff;height:14px;width:14px;border-radius:2px;}
+  input[type=text]{width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;font-family:monospace;font-size:14px;text-align:center;}
+  .toggle{position:relative;display:inline-block;width:48px;height:24px;background:#30363d;border-radius:12px;}
+  .toggle input{opacity:0;width:0;height:0;}
+  .slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#30363d;border-radius:12px;transition:.2s;}
+  .slider:before{position:absolute;content:"";height:20px;width:20px;left:2px;bottom:2px;background:#c9d1d9;border-radius:50%;transition:.2s;}
+  input:checked + .slider{background:#58a6ff;}
+  input:checked + .slider:before{transform:translateX(24px);}
+  .status{margin-top:20px;text-align:center;font-size:13px;color:#8b949e;}
+  .on{color:#79c0ff;}
+  .off{color:#da3633;}
+</style>
+</head>
+<body>
+<div class="box" x-data="cfg()">
+  <h1>penguin external</h1>
+  <div>
+    <label>enable</label>
+    <label class="toggle">
+      <input type="checkbox" x-model="enabled" @change="save()">
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div>
+  <label>delay</label>
+  
+  <input type="range" 
+         min="50" max="2000" step="1" 
+         x-model.number="delayMs" 
+         @input="save()">
+
+  <input type="text" 
+         x-model="delay" 
+         @change="delay = Math.max(0.05, Math.min(2, parseFloat(delay) || 0.68)).toFixed(3); save()"
+         style="margin-top:8px;width:100%;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;text-align:center;font-family:monospace;font-size:14px;">
+</div>
+    <label >trigger key</label>
+    <input id="keybindInput" type="text" x-model="key" @change="save()" @focus="startCapture()" @blur="stopCapture()" placeholder="click to bind" maxlength="32">
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script>
+function cfg(){
+  return{
+    enabled: false,
+    delay: 0.680,
+    key: 'f',
+    _capturing: false,
+    _kbdHandler: null,
+    _mouseHandler: null,
+    
+    get delayMs() { return Math.round(this.delay * 1000) },
+    set delayMs(val) { this.delay = (val / 1000).toFixed(3) },
+
+    save(){ fetch('/c', {method:'POST', body:JSON.stringify({
+      enabled: this.enabled,
+      delay: parseFloat(this.delay),
+      key: this.key
+    })})},
+
+    startCapture(){
+      if(this._capturing) return;
+      this._capturing = true;
+      const self = this;
+      const input = document.getElementById('keybindInput');
+      if(input){
+        input.readOnly = true; // prevent typed characters from appearing while capturing
+        input.value = '... press a key or click a mouse button';
+      }
+
+      this._kbdHandler = function(evt){
+        try{
+          // prevent the actual character from being inserted into the input
+          try{ evt.preventDefault(); evt.stopPropagation(); }catch(e){}
+          let k = evt.key;
+          if(k === ' ') k = 'space';
+          k = (k || '').toString().toLowerCase();
+          if(k === 'arrowleft') k = 'left';
+          if(k === 'arrowright') k = 'right';
+          if(k === 'arrowup') k = 'up';
+          if(k === 'arrowdown') k = 'down';
+          self.key = k;
+          self.save();
+        }catch(e){ }
+        self.stopCapture();
+      };
+
+      this._mouseHandler = function(evt){
+        try{
+          try{ evt.preventDefault(); evt.stopPropagation(); }catch(e){}
+          let m = 'mouse_left';
+          if(evt.button === 0) m = 'mouse_left';
+          else if(evt.button === 1) m = 'mouse_middle';
+          else if(evt.button === 2) m = 'mouse_right';
+          self.key = m;
+          self.save();
+        }catch(e){ }
+        self.stopCapture();
+      };
+
+      document.addEventListener('keydown', this._kbdHandler, {capture:true});
+      document.addEventListener('mousedown', this._mouseHandler, {capture:true});
+    },
+
+    stopCapture(){
+      if(!this._capturing) return;
+      this._capturing = false;
+      try{
+        if(this._kbdHandler) document.removeEventListener('keydown', this._kbdHandler, {capture:true});
+      }catch(e){}
+      try{
+        if(this._mouseHandler) document.removeEventListener('mousedown', this._mouseHandler, {capture:true});
+      }catch(e){}
+      this._kbdHandler = null;
+      this._mouseHandler = null;
+      const input = document.getElementById('keybindInput');
+      if(input){
+        input.readOnly = false;
+        input.value = this.key;
+      }
+    },
+
+    init(){ fetch('/c').then(r=>r.json()).then(d=>{ Object.assign(this,d); this.delay = parseFloat(d.delay||0.68).toFixed(3); const input = document.getElementById('keybindInput'); if(input) input.value = this.key; })}
+  }
+}
+</script>
+</body>
+</html>
